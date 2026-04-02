@@ -314,10 +314,7 @@ def create_dataset_for_airfoil(dat_file_path, output_dir, xfoil_exe='xfoil.exe',
     lam = resArr[:-1]
     gamma = resArr[-1]
     
-    print(f"Evaluating flow field mapped to shape ({nGridX}, {nGridY})...")
-    # In DeepCFD standard frame: Flow is along X (Horizontal)
-    # The image representation is rotated such that dim 0 = X, dim 1 = Y
-    # So an array of (172, 79) plotted natively looks TALL (flow is vertical)
+    print(f"Starting {nGridX}x{nGridY} Grid Evaluation (Vectorized)...")
     
     xVals = [np.min(XB)-0.5, np.max(XB)+0.5]
     yVals = [np.min(YB)-0.3, np.max(YB)+0.3]
@@ -325,11 +322,11 @@ def create_dataset_for_airfoil(dat_file_path, output_dir, xfoil_exe='xfoil.exe',
     Xgrid = np.linspace(xVals[0], xVals[1], nGridX)
     Ygrid = np.linspace(yVals[0], yVals[1], nGridY)
     
-    # Indexing 'ij' gives XX and YY of shape (nGridX, nGridY) = (172, 79)
-    XX, YY = np.meshgrid(Xgrid, Ygrid, indexing='ij')
+    # Use xy indexing to physically match gen_data.py
+    XX, YY = np.meshgrid(Xgrid, Ygrid) # XX is (79, 172)
     
-    Vx = np.zeros((nGridX, nGridY))
-    Vy = np.zeros((nGridX, nGridY))
+    Vx = np.zeros((nGridY, nGridX))
+    Vy = np.zeros((nGridY, nGridX))
     
     from scipy.spatial.distance import cdist
     airfoil_path = Path(np.column_stack((XB, YB)))
@@ -338,51 +335,106 @@ def create_dataset_for_airfoil(dat_file_path, output_dir, xfoil_exe='xfoil.exe',
     bndy = np.column_stack((XB, YB))
     
     print("Computing SDF1, Flow Region, and SDF2...")
-    # 1. SDF 1: Signed Distance to Airfoil
     dists = np.min(cdist(pts, bndy), axis=1)
-    SDF1 = dists.reshape((nGridX, nGridY))
+    SDF1 = dists.reshape((nGridY, nGridX))
     
     inside_mask_flat = airfoil_path.contains_points(pts)
-    inside_mask = inside_mask_flat.reshape((nGridX, nGridY))
-    SDF1[inside_mask] = -SDF1[inside_mask]  # negative inside obstacle
+    inside_mask = inside_mask_flat.reshape((nGridY, nGridX))
+    SDF1[inside_mask] = -SDF1[inside_mask]
     
-    # 2. Flow Region Channel
-    FlowRegion = np.ones((nGridX, nGridY), dtype=np.float32)
-    FlowRegion[:, 0]  = 2  # Bottom Y wall
-    FlowRegion[:, -1] = 2  # Top Y wall
-    FlowRegion[0, :]  = 3  # Inlet X (left side)
-    FlowRegion[-1, :] = 4  # Outlet X (right side)
-    FlowRegion[inside_mask] = 0  # Obstacle shape
+    # Flow Region Channel on native frame (79, 172)
+    # y ranges from 0 to 78, x ranges from 0 to 171
+    FlowRegion = np.ones((nGridY, nGridX), dtype=np.float32)
+    FlowRegion[0, :]  = 2  # Bottom Y wall
+    FlowRegion[-1, :] = 2  # Top Y wall
+    FlowRegion[:, 0]  = 3  # Inlet X (left side)
+    FlowRegion[:, -1] = 4  # Outlet X (right side)
+    FlowRegion[inside_mask] = 0
     
-    # 3. SDF 2: Distance to non-slip walls (Y boundaries)
-    SDF2 = np.zeros((nGridX, nGridY))
-    for j in range(nGridY):
-        d_wall = min(abs(Ygrid[j] - Ygrid[0]), abs(Ygrid[-1] - Ygrid[j]))
-        SDF2[:, j] = d_wall
+    # SDF 2: Distance to non-slip walls (Y boundaries)
+    SDF2 = np.zeros((nGridY, nGridX))
+    for m in range(nGridY):
+        d_wall = min(abs(Ygrid[m] - Ygrid[0]), abs(Ygrid[-1] - Ygrid[m]))
+        SDF2[m, :] = d_wall
         
-    print("Evaluating velocity field...")
-    for i in range(nGridX):
-        for j in range(nGridY):
-            XP = XX[i, j]
-            YP = YY[i, j]
-            
-            Mx, My = STREAMLINE_SPM(XP, YP, XB, YB, phi, S)
-            Nx, Ny = STREAMLINE_VPM(XP, YP, XB, YB, phi, S)
-            
-            if inside_mask[i, j]:
-                Vx[i, j] = 0
-                Vy[i, j] = 0
-            else:
-                Vx[i, j] = Vinf*np.cos(np.radians(AoA)) + np.sum(lam*Mx/(2*np.pi)) + np.sum(-gamma*Nx/(2*np.pi))
-                Vy[i, j] = Vinf*np.sin(np.radians(AoA)) + np.sum(lam*My/(2*np.pi)) + np.sum(-gamma*Ny/(2*np.pi))
-                
+    print("Evaluating velocity field... (Vectorized for maximum performance)")
+    YY_offset = YY + 1e-8
+    Vx_ind = np.zeros((nGridY, nGridX))
+    Vy_ind = np.zeros((nGridY, nGridX))
+    
+    for j in range(numPan):
+        A = -(XX-XB[j])*np.cos(phi[j]) - (YY_offset-YB[j])*np.sin(phi[j])
+        B = (XX-XB[j])**2 + (YY_offset-YB[j])**2
+        
+        val = B - A**2
+        E_mask = val > 0
+        E = np.zeros_like(val)
+        E[E_mask] = np.sqrt(val[E_mask])
+        
+        # SPM component
+        Cx_spm = -np.cos(phi[j])
+        Cy_spm = -np.sin(phi[j])
+        Dx_spm = XX - XB[j]
+        Dy_spm = YY_offset - YB[j]
+        
+        log_term = np.zeros_like(B)
+        B_mask = B > 0
+        log_term[B_mask] = np.log((S[j]**2 + 2*A[B_mask]*S[j] + B[B_mask]) / B[B_mask])
+        
+        atan_term = np.zeros_like(E)
+        atan_term[E_mask] = np.arctan2(S[j]+A[E_mask], E[E_mask]) - np.arctan2(A[E_mask], E[E_mask])
+        
+        E_safe = np.where(E_mask, E, 1.0)
+        
+        Mx = 0.5 * Cx_spm * log_term
+        My = 0.5 * Cy_spm * log_term
+        Mx[E_mask] += ((Dx_spm[E_mask] - A[E_mask]*Cx_spm) / E_safe[E_mask]) * atan_term[E_mask]
+        My[E_mask] += ((Dy_spm[E_mask] - A[E_mask]*Cy_spm) / E_safe[E_mask]) * atan_term[E_mask]
+        
+        Mx = np.nan_to_num(Mx, nan=0.0)
+        My = np.nan_to_num(My, nan=0.0)
+        
+        # VPM component
+        Cx_vpm = np.sin(phi[j])
+        Cy_vpm = -np.cos(phi[j])
+        Dx_vpm = -(YY_offset - YB[j])
+        Dy_vpm = XX - XB[j]
+        
+        Nx = 0.5 * Cx_vpm * log_term
+        Ny = 0.5 * Cy_vpm * log_term
+        Nx[E_mask] += ((Dx_vpm[E_mask] - A[E_mask]*Cx_vpm) / E_safe[E_mask]) * atan_term[E_mask]
+        Ny[E_mask] += ((Dy_vpm[E_mask] - A[E_mask]*Cy_vpm) / E_safe[E_mask]) * atan_term[E_mask]
+        
+        Nx = np.nan_to_num(Nx, nan=0.0)
+        Ny = np.nan_to_num(Ny, nan=0.0)
+        
+        Vx_ind += lam[j] * Mx / (2*np.pi) - gamma * Nx / (2*np.pi)
+        Vy_ind += lam[j] * My / (2*np.pi) - gamma * Ny / (2*np.pi)
+    
+    Vx = Vinf*np.cos(np.radians(AoA)) + Vx_ind
+    Vy = Vinf*np.sin(np.radians(AoA)) + Vy_ind
+    
+    Vx[inside_mask] = 0.0
+    Vy[inside_mask] = 0.0
+    
     Vxy = np.sqrt(Vx**2 + Vy**2)
     with np.errstate(divide='ignore', invalid='ignore'):
         CpXY = 1 - (Vxy/Vinf)**2
         
-    p = np.nan_to_num(CpXY, nan=0.0)
+    p = np.nan_to_num(0.5 * CpXY, nan=0.0)
     Vx = np.nan_to_num(Vx, nan=0.0)
     Vy = np.nan_to_num(Vy, nan=0.0)
+    
+    # -----------------------------
+    # APPLY TRANSPOSE ORIENTATION
+    # -----------------------------
+    # Extrapolates (79, 172) native array into exactly (172, 79)
+    SDF1 = SDF1.T
+    FlowRegion = FlowRegion.T
+    SDF2 = SDF2.T
+    Vx = Vx.T
+    Vy = Vy.T
+    p = p.T
     
     # Format properly
     dataX = np.stack([SDF1, FlowRegion, SDF2], axis=0).astype(np.float32)
@@ -400,7 +452,7 @@ def create_dataset_for_airfoil(dat_file_path, output_dir, xfoil_exe='xfoil.exe',
     with open(out_Y, 'wb') as f:
         pickle.dump(dataY, f)
         
-    print(f"Success. Wrote DataX of shape {dataX.shape} to {out_X} and DataY of shape {dataY.shape} to {out_Y}.")
+    print(f"Success. Wrote DataX to {out_X} and DataY to {out_Y}.")
 
 
 if __name__ == "__main__":
