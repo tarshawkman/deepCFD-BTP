@@ -4,7 +4,6 @@ import pickle
 import subprocess
 import shutil
 import argparse
-from scipy.spatial.distance import cdist
 from matplotlib.path import Path
 
 def COMPUTE_IJ_SPM(XC, YC, XB, YB, phi, S):
@@ -315,71 +314,81 @@ def create_dataset_for_airfoil(dat_file_path, output_dir, xfoil_exe='xfoil.exe',
     lam = resArr[:-1]
     gamma = resArr[-1]
     
-    # -------------------------------------------------------------
-    # Evaluation
-    # -------------------------------------------------------------
-    print(f"Evaluating flow field on {nGridY}x{nGridX} grid...")
+    print(f"Evaluating flow field mapped to shape ({nGridX}, {nGridY})...")
+    # In DeepCFD standard frame: Flow is along X (Horizontal)
+    # The image representation is rotated such that dim 0 = X, dim 1 = Y
+    # So an array of (172, 79) plotted natively looks TALL (flow is vertical)
+    
     xVals = [np.min(XB)-0.5, np.max(XB)+0.5]
     yVals = [np.min(YB)-0.3, np.max(YB)+0.3]
     
     Xgrid = np.linspace(xVals[0], xVals[1], nGridX)
     Ygrid = np.linspace(yVals[0], yVals[1], nGridY)
-    XX, YY = np.meshgrid(Xgrid, Ygrid)
     
-    Vx = np.zeros((nGridY, nGridX))
-    Vy = np.zeros((nGridY, nGridX))
-    SDF = np.zeros((nGridY, nGridX))
+    # Indexing 'ij' gives XX and YY of shape (nGridX, nGridY) = (172, 79)
+    XX, YY = np.meshgrid(Xgrid, Ygrid, indexing='ij')
+    
+    Vx = np.zeros((nGridX, nGridY))
+    Vy = np.zeros((nGridX, nGridY))
     
     from scipy.spatial.distance import cdist
-    airfoil_pts = np.column_stack((XB, YB))
-    airfoil_path = Path(airfoil_pts)
+    airfoil_path = Path(np.column_stack((XB, YB)))
     
-    pts = np.column_stack((XX.ravel(), YY.ravel()))
-    is_inside = airfoil_path.contains_points(pts).reshape(nGridY, nGridX)
-    dist_to_obstacle = cdist(pts, airfoil_pts).min(axis=1).reshape(nGridY, nGridX)
+    pts = np.column_stack((XX.flatten(), YY.flatten()))
+    bndy = np.column_stack((XB, YB))
     
-    sdf1 = np.where(is_inside, -dist_to_obstacle, dist_to_obstacle)
+    print("Computing SDF1, Flow Region, and SDF2...")
+    # 1. SDF 1: Signed Distance to Airfoil
+    dists = np.min(cdist(pts, bndy), axis=1)
+    SDF1 = dists.reshape((nGridX, nGridY))
     
-    # SDF 2: distance to left and right walls (vertical flow setup)
-    sdf2 = np.minimum(XX - xVals[0], xVals[1] - XX)
+    inside_mask_flat = airfoil_path.contains_points(pts)
+    inside_mask = inside_mask_flat.reshape((nGridX, nGridY))
+    SDF1[inside_mask] = -SDF1[inside_mask]  # negative inside obstacle
     
-    # Flow region channel
-    # 0=obstacle, 1=fluid, 2=wall, 3=inlet, 4=outlet
-    flow_region = np.ones((nGridY, nGridX), dtype=np.float32)
-    flow_region[is_inside] = 0.0
+    # 2. Flow Region Channel
+    FlowRegion = np.ones((nGridX, nGridY), dtype=np.float32)
+    FlowRegion[:, 0]  = 2  # Bottom Y wall
+    FlowRegion[:, -1] = 2  # Top Y wall
+    FlowRegion[0, :]  = 3  # Inlet X (left side)
+    FlowRegion[-1, :] = 4  # Outlet X (right side)
+    FlowRegion[inside_mask] = 0  # Obstacle shape
     
-    # Assuming transposed boundaries for vertical flow representation
-    flow_region[:, 0] = 2.0  # Left wall
-    flow_region[:, -1] = 2.0 # Right wall
-    flow_region[0, :] = 3.0  # Bottom inlet
-    flow_region[-1, :] = 4.0 # Top outlet
-    
-    for m in range(nGridY):
-        for n in range(nGridX):
-            if is_inside[m, n]:
-                Vx[m,n] = 0
-                Vy[m,n] = 0
+    # 3. SDF 2: Distance to non-slip walls (Y boundaries)
+    SDF2 = np.zeros((nGridX, nGridY))
+    for j in range(nGridY):
+        d_wall = min(abs(Ygrid[j] - Ygrid[0]), abs(Ygrid[-1] - Ygrid[j]))
+        SDF2[:, j] = d_wall
+        
+    print("Evaluating velocity field...")
+    for i in range(nGridX):
+        for j in range(nGridY):
+            XP = XX[i, j]
+            YP = YY[i, j]
+            
+            Mx, My = STREAMLINE_SPM(XP, YP, XB, YB, phi, S)
+            Nx, Ny = STREAMLINE_VPM(XP, YP, XB, YB, phi, S)
+            
+            if inside_mask[i, j]:
+                Vx[i, j] = 0
+                Vy[i, j] = 0
             else:
-                XP = XX[m,n]
-                YP = YY[m,n]
-                Mx, My = STREAMLINE_SPM(XP, YP, XB, YB, phi, S)
-                Nx, Ny = STREAMLINE_VPM(XP, YP, XB, YB, phi, S)
-                Vx[m,n] = Vinf*np.cos(np.radians(AoA)) + np.sum(lam*Mx/(2*np.pi)) + np.sum(-gamma*Nx/(2*np.pi))
-                Vy[m,n] = Vinf*np.sin(np.radians(AoA)) + np.sum(lam*My/(2*np.pi)) + np.sum(-gamma*Ny/(2*np.pi))
+                Vx[i, j] = Vinf*np.cos(np.radians(AoA)) + np.sum(lam*Mx/(2*np.pi)) + np.sum(-gamma*Nx/(2*np.pi))
+                Vy[i, j] = Vinf*np.sin(np.radians(AoA)) + np.sum(lam*My/(2*np.pi)) + np.sum(-gamma*Ny/(2*np.pi))
                 
     Vxy = np.sqrt(Vx**2 + Vy**2)
     with np.errstate(divide='ignore', invalid='ignore'):
         CpXY = 1 - (Vxy/Vinf)**2
         
-    CpXY = np.nan_to_num(CpXY, nan=0.0)
+    p = np.nan_to_num(CpXY, nan=0.0)
     Vx = np.nan_to_num(Vx, nan=0.0)
     Vy = np.nan_to_num(Vy, nan=0.0)
     
-    # Cast safely to float32 for deep learning pipelines but float64 is fine too
-    dataX = np.stack([sdf1, flow_region, sdf2], axis=0).astype(np.float32)
-    dataX = np.expand_dims(dataX, axis=0)
+    # Format properly
+    dataX = np.stack([SDF1, FlowRegion, SDF2], axis=0).astype(np.float32)
+    dataX = np.expand_dims(dataX, axis=0) # shape (1, 3, 172, 79)
     
-    dataY = np.stack([Vx, Vy, CpXY], axis=0).astype(np.float32)
+    dataY = np.stack([Vx, Vy, p], axis=0).astype(np.float32)
     dataY = np.expand_dims(dataY, axis=0)
     
     out_X = os.path.join(output_dir, "dataX.pkl")
@@ -399,8 +408,8 @@ if __name__ == "__main__":
     parser.add_argument("--dat_file", type=str, required=True, help="Path to airfoil .dat file")
     parser.add_argument("--out_dir", type=str, default=".", help="Output directory for .pkl files")
     parser.add_argument("--xfoil_exe", type=str, default="xfoil.exe", help="Path to the xfoil executable")
-    parser.add_argument("--grid_y", type=int, default=172, help="Grid dimension Y")
-    parser.add_argument("--grid_x", type=int, default=79, help="Grid dimension X")
+    parser.add_argument("--grid_x", type=int, default=172, help="Grid dimension X (Length of domain)")
+    parser.add_argument("--grid_y", type=int, default=79, help="Grid dimension Y (Height of domain)")
     parser.add_argument("--vinf", type=float, default=1.0, help="Freestream velocity")
     parser.add_argument("--aoa", type=float, default=0.0, help="Angle of attack in degrees")
     args = parser.parse_args()
@@ -409,8 +418,8 @@ if __name__ == "__main__":
         dat_file_path=args.dat_file,
         output_dir=args.out_dir,
         xfoil_exe=args.xfoil_exe,
-        nGridY=args.grid_y,
         nGridX=args.grid_x,
+        nGridY=args.grid_y,
         Vinf=args.vinf,
         AoA=args.aoa
     )

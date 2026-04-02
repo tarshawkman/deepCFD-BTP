@@ -15,27 +15,26 @@ def plot_single(dataX, dataY, index=0):
     
     # We transpose for visualization depending on how the data was saved.
     # Usually DeepCFD stores (C, nx, ny), if so, shape is (3, 172, 79).
-    sdf1 = x[0].T
-    flow_region = x[1].T
-    sdf2 = x[2].T
+    sdf = x[0]
+    u_in = x[1]
+    v_in = x[2]
     
-    ux = y[0].T
-    uy = y[1].T
-    p = y[2].T
+    ux = y[0]
+    uy = y[1]
+    p = y[2]
     
     fig, axs = plt.subplots(2, 3, figsize=(15, 8))
     
-    im0 = axs[0,0].imshow(sdf1, origin='lower', cmap='seismic')
-    axs[0,0].set_title('SDF 1 (Obstacle)')
+    im0 = axs[0,0].imshow(sdf, origin='lower', cmap='binary')
+    axs[0,0].set_title('SDF / Geometry')
     fig.colorbar(im0, ax=axs[0,0])
     
-    # flow_region defines discrete states 0,1,2,3,4.
-    im1 = axs[0,1].imshow(flow_region, origin='lower', cmap='tab10', vmin=0, vmax=4)
-    axs[0,1].set_title('Flow Region Channel')
+    im1 = axs[0,1].imshow(u_in, origin='lower', cmap='jet')
+    axs[0,1].set_title('Inlet Ux')
     fig.colorbar(im1, ax=axs[0,1])
     
-    im2 = axs[0,2].imshow(sdf2, origin='lower', cmap='viridis')
-    axs[0,2].set_title('SDF 2 (Walls)')
+    im2 = axs[0,2].imshow(v_in, origin='lower', cmap='jet')
+    axs[0,2].set_title('Inlet Uy')
     fig.colorbar(im2, ax=axs[0,2])
     
     im3 = axs[1,0].imshow(ux, origin='lower', cmap='jet')
