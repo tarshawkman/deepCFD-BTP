@@ -12,16 +12,16 @@ def plot_single(dataX, dataY, index=0):
     x = dataX[index]
     y = dataY[index]
     
-    # Expected Channels for DeepCFD (Vertical Flow)
-    # dataX: Chan 0: SDF1, Chan 1: Mask, Chan 2: SDF2
-    # dataY: Chan 0: Uy, Chan 1: Ux, Chan 2: P
+    # Toy Dataset Ordering: 
+    # dataX: Chan 0: SDF1, Chan 1: Mask, Chan 2: Inlet Velocity (SDF2)
+    # dataY: Chan 0: Ux (Vertical), Chan 1: Uy (Horizontal), Chan 2: P
     
     sdf1 = x[0]
     mask = x[1]
-    sdf2 = x[2]
+    inlet = x[2]
     
-    uy = y[0]
-    ux = y[1]
+    ux = y[0] # Vertical
+    uy = y[1] # Horizontal
     p = y[2]
     
     fig, axs = plt.subplots(2, 3, figsize=(15, 8))
@@ -34,16 +34,16 @@ def plot_single(dataX, dataY, index=0):
     axs[0,1].set_title('Flow Region (Mask)')
     fig.colorbar(im1, ax=axs[0,1])
     
-    im2 = axs[0,2].imshow(sdf2, origin='lower', cmap='jet')
-    axs[0,2].set_title('SDF2 (Boundaries)')
+    im2 = axs[0,2].imshow(inlet, origin='lower', cmap='jet')
+    axs[0,2].set_title('Inlet Velocity (SDF2)')
     fig.colorbar(im2, ax=axs[0,2])
     
-    im3 = axs[1,0].imshow(uy, origin='lower', cmap='jet')
-    axs[1,0].set_title('Vertical Velocity (Uy)')
+    im3 = axs[1,0].imshow(ux, origin='lower', cmap='jet')
+    axs[1,0].set_title('Inlet Axis Velocity (Ux)')
     fig.colorbar(im3, ax=axs[1,0])
     
-    im4 = axs[1,1].imshow(ux, origin='lower', cmap='jet')
-    axs[1,1].set_title('Horizontal Velocity (Ux)')
+    im4 = axs[1,1].imshow(uy, origin='lower', cmap='jet')
+    axs[1,1].set_title('Cross Axis Velocity (Uy)')
     fig.colorbar(im4, ax=axs[1,1])
     
     im5 = axs[1,2].imshow(p, origin='lower', cmap='jet')
