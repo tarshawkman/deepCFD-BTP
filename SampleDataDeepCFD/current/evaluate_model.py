@@ -64,35 +64,53 @@ def evaluate_predictions(dataX_path, dataY_path, model_weights_path, num_samples
     for i, idx in enumerate(indices):
         mask = X_test[i, 1]
         
-        ux_gt = Y_test[i, 0] # LBM vertical flow was channel 0
+        # Extract Vertical Velocity (Ux)
+        ux_gt = Y_test[i, 0] 
         ux_pred = Y_pred[i, 0]
-        error = np.abs(ux_gt - ux_pred)
+        ux_err = np.abs(ux_gt - ux_pred)
         
+        # Extract Pressure (P)
         p_gt = Y_test[i, 2]
         p_pred = Y_pred[i, 2]
+        p_err = np.abs((p_gt - np.mean(p_gt[0, :])) - (p_pred - np.mean(p_pred[0, :])))
         pref_gt = np.mean(p_gt[0, :])
         pref_pred = np.mean(p_pred[0, :])
         
-        # --- Plot 1: Visual Heatmap Comparisons (Ux) ---
-        fig, axs = plt.subplots(1, 3, figsize=(15, 6))
+        # --- Plot 1: Visual Heatmap Comparisons (Ux & Pressure) ---
+        fig, axs = plt.subplots(2, 3, figsize=(15, 10))
         
-        im0 = axs[0].imshow(ux_gt, origin='lower', cmap='jet')
-        axs[0].set_title(f'Sample {idx}: Ground Truth (Ux)')
-        fig.colorbar(im0, ax=axs[0], fraction=0.046, pad=0.04)
+        # Row 1: Velocity
+        im0 = axs[0, 0].imshow(ux_gt, origin='lower', cmap='jet')
+        axs[0, 0].set_title(f'Ground Truth (Ux)')
+        fig.colorbar(im0, ax=axs[0, 0])
         
-        im1 = axs[1].imshow(ux_pred, origin='lower', cmap='jet')
-        axs[1].set_title(f'Sample {idx}: Model Prediction (Ux)')
-        fig.colorbar(im1, ax=axs[1], fraction=0.046, pad=0.04)
+        im1 = axs[0, 1].imshow(ux_pred, origin='lower', cmap='jet')
+        axs[0, 1].set_title(f'Model Prediction (Ux)')
+        fig.colorbar(im1, ax=axs[0, 1])
         
-        im2 = axs[2].imshow(error, origin='lower', cmap='hot')
-        axs[2].set_title(f'Sample {idx}: Absolute Error')
-        fig.colorbar(im2, ax=axs[2], fraction=0.046, pad=0.04)
+        im2 = axs[0, 2].imshow(ux_err, origin='lower', cmap='hot')
+        axs[0, 2].set_title(f'Velocity Absolute Error')
+        fig.colorbar(im2, ax=axs[0, 2])
         
+        # Row 2: Pressure
+        im3 = axs[1, 0].imshow(p_gt, origin='lower', cmap='jet')
+        axs[1, 0].set_title(f'Ground Truth (Pressure)')
+        fig.colorbar(im3, ax=axs[1, 0])
+        
+        im4 = axs[1, 1].imshow(p_pred, origin='lower', cmap='jet')
+        axs[1, 1].set_title(f'Model Prediction (Pressure)')
+        fig.colorbar(im4, ax=axs[1, 1])
+        
+        im5 = axs[1, 2].imshow(p_err, origin='lower', cmap='hot')
+        axs[1, 2].set_title(f'Pressure Absolute Error')
+        fig.colorbar(im5, ax=axs[1, 2])
+        
+        plt.suptitle(f'DeepCFD Performance - Sample {idx}', fontsize=16)
         plt.tight_layout()
         plt.savefig(f'heatmap_compare_{idx}.png', dpi=150)
         plt.close()
         
-        # --- Plot 2: Cp Curve Comparisons ---
+        # --- Plot 2: Cp Curve Point Comparisons ---
         xl_gt, cpl_gt, xr_gt, cpr_gt = extract_cp(p_gt, mask, Vinf, pref_gt)
         xl_pr, cpl_pr, xr_pr, cpr_pr = extract_cp(p_pred, mask, Vinf, pref_pred)
         
@@ -108,7 +126,7 @@ def evaluate_predictions(dataX_path, dataY_path, model_weights_path, num_samples
         
         plt.xlabel('x / c (Normalized Chord)')
         plt.ylabel('Cp (Pressure Coefficient)')
-        plt.title(f'Cp Match - Sample {idx}')
+        plt.title(f'Cp Coefficient Curve Match - Sample {idx}')
         plt.grid(True, linestyle=':', alpha=0.7)
         plt.legend()
         plt.gca().invert_yaxis()
@@ -117,7 +135,7 @@ def evaluate_predictions(dataX_path, dataY_path, model_weights_path, num_samples
         plt.savefig(f'cp_compare_{idx}.png', dpi=150)
         plt.close()
 
-    print(f"Evaluation complete. Saved plot sets for {num_samples} random airfoils.")
+    print(f"Evaluation complete. Saved qualitative & quantitative plot sets for {num_samples} unseen testing airfoils.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
