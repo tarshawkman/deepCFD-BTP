@@ -1,0 +1,8 @@
+--- dataX[0] (Input Channels) ---
+Chan 0: min=-50.0000, max=0.7981, mean=-2.5103
+Chan 1: min=0.0000, max=4.0000, mean=0.9966
+Chan 2: min=-0.0050, max=0.3850, mean=0.1875
+--- dataY[0] (Output Channels) ---
+Chan 0: min=-0.0355, max=0.2393, mean=0.1012
+Chan 1: min=-0.1372, max=0.1444, mean=-0.0004
+Chan 2: min=-0.0159, max=0.0394, mean=0.0079

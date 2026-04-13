@@ -20,15 +20,14 @@ def plot_dataset_head(dataX, dataY, num_samples=3):
         x = dataX[i]
         y = dataY[i]
         
-        sdf1 = x[0].T
-        flow_region = x[1].T
-        ux = y[0].T
-        uy = y[1].T
-        p = y[2].T
+        sdf = x[0]
+        ux = y[0]
+        uy = y[1]
+        p = y[2]
         
-        # Geometry (SDF1)
-        im0 = axs[i][0].imshow(sdf1, origin='lower', cmap='seismic')
-        axs[i][0].set_title(f'Sample {i} SDF1')
+        # Geometry
+        im0 = axs[i][0].imshow(sdf, origin='lower', cmap='binary')
+        axs[i][0].set_title(f'Sample {i} Geo')
         fig.colorbar(im0, ax=axs[i][0])
         
         im1 = axs[i][1].imshow(ux, origin='lower', cmap='jet')

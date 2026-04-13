@@ -1,0 +1,5 @@
+LOAD t.dat
+PANE
+SAVE af.txt
+
+QUIT
