@@ -24,6 +24,10 @@ def plot_single(dataX, dataY, index=0):
     uy = y[1] # Horizontal
     p = y[2]
     
+    # Calculate typical freestream from inlet channel
+    v_target = np.mean(inlet)
+    v_range = v_target * 0.5
+    
     fig, axs = plt.subplots(2, 3, figsize=(15, 8))
     
     im0 = axs[0,0].imshow(sdf1, origin='lower', cmap='jet')
@@ -38,11 +42,12 @@ def plot_single(dataX, dataY, index=0):
     axs[0,2].set_title('Inlet Velocity (SDF2)')
     fig.colorbar(im2, ax=axs[0,2])
     
-    im3 = axs[1,0].imshow(ux, origin='lower', cmap='jet')
+    # Focus velocity maps on perturbations
+    im3 = axs[1,0].imshow(ux, origin='lower', cmap='jet', vmin=v_target-v_range, vmax=v_target+v_range)
     axs[1,0].set_title('Inlet Axis Velocity (Ux)')
     fig.colorbar(im3, ax=axs[1,0])
     
-    im4 = axs[1,1].imshow(uy, origin='lower', cmap='jet')
+    im4 = axs[1,1].imshow(uy, origin='lower', cmap='jet', vmin=-v_range, vmax=v_range)
     axs[1,1].set_title('Cross Axis Velocity (Uy)')
     fig.colorbar(im4, ax=axs[1,1])
     

@@ -86,8 +86,8 @@ def create_dataset_for_airfoil(dat_file_path, output_dir, xfoil_exe='xfoil.exe',
     XB_r, YB_r = -YB, XB 
     yV, xV = [np.min(YB_r)-0.5, np.max(YB_r)+0.5], [np.min(XB_r)-0.3, np.max(XB_r)+0.3]
     XX, YY = np.meshgrid(np.linspace(xV[0], xV[1], nGridX), np.linspace(yV[0], yV[1], nGridY))
-    Vmax = 0.38
-    Vprofile = Vmax * (1.0 - 0.5 * ((XX - np.mean(xV)) / ( (xV[1]-xV[0])/2 ))**2)
+    Vinf = 0.1
+    Vprofile = np.full(XX.shape, Vinf)
     
     # Use average profile magnitude as freestream for solving strengths
     Vmean = np.mean(Vprofile)
