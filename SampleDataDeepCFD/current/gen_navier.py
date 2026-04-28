@@ -12,11 +12,9 @@ def run_xfoil(dat_file_path, xfoil_exe):
     shutil.copy(dat_file_path, "t.dat")
     if os.path.exists("af.txt"): os.remove("af.txt")
     
+    # PPAR N 170 re-panels to exactly 170 evenly-distributed panels — same as generate_data.py
     with open("xfoil_input.txt", "w") as f:
-        f.write("LOAD t.dat\n")
-        f.write("PANE\n")
-        f.write("SAVE af.txt\n")
-        f.write("\nQUIT\n")
+        f.write("LOAD t.dat\nPPAR\nN 170\n\n\nPSAV af.txt\nQUIT\n")
         
     subprocess.run(f'"{xfoil_exe}" < xfoil_input.txt', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     coords = np.loadtxt("af.txt", skiprows=1)
@@ -102,23 +100,24 @@ def main():
     Ny, Nx = 172, 79
     XB, YB = run_xfoil(args.dat_file, args.xfoil_exe)
     
-    # Rotate 90 CCW for vertical flow alignment
-    XB_r = -YB
+    # Work in the SAME physical coordinate space as generate_data.py
+    # Rotate 90° CCW: chord lies along Y axis (vertical flow)
+    XB_r = -YB   # physical coords, chord ≈ 1.0 unit
     YB_r = XB
-    
-    # Scale geometry
-    chord = np.max(YB_r) - np.min(YB_r)
-    sc = 40.0 / chord
-    XB_r *= sc
-    YB_r *= sc
-    # Center
-    XB_r += 39.0 - np.mean(XB_r)
-    YB_r += 45.0 - np.min(YB_r)
-    
-    # Rasterize
-    Xgrid, Ygrid = np.meshgrid(np.arange(Nx), np.arange(Ny))
+
+    # Build a tight channel around the airfoil — same margins as generate_data.py
+    # X: airfoil width ± 0.3 chord,  Y: airfoil chord ± 0.5 chord
+    x_lo, x_hi = np.min(XB_r) - 0.3, np.max(XB_r) + 0.3
+    y_lo, y_hi = np.min(YB_r) - 0.5, np.max(YB_r) + 0.5
+
+    # Create the 79×172 grid in physical units (linspace = same as generate_data.py)
+    xx = np.linspace(x_lo, x_hi, Nx)
+    yy = np.linspace(y_lo, y_hi, Ny)
+    XX, YY = np.meshgrid(xx, yy)   # YY varies along rows (flow direction)
+
+    # Rasterize in physical coordinates — high effective resolution
     path = Path(np.column_stack((XB_r, YB_r)))
-    mask = path.contains_points(np.column_stack((Xgrid.flatten(), Ygrid.flatten()))).reshape((Ny, Nx)).astype(float)
+    mask = path.contains_points(np.column_stack((XX.flatten(), YY.flatten()))).reshape((Ny, Nx)).astype(float)
     
     Vinf = 0.1
     u, p = solve_lbm(mask, Vinf, max_iters=6000)

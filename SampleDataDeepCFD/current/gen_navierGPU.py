@@ -123,19 +123,28 @@ def batch_generate_gpu(dat_folder, out_folder):
         try:
             XB, YB = load_raw_dat(dat_file)
             if XB is None or len(XB) < 10: continue
-            
-            chord = np.max(XB) - np.min(XB)
+
+            # Rotate 90° CCW: chord lies along Y axis (vertical flow)
+            XB_r, YB_r = -YB, XB  # physical coords, chord ≈ 1.0 unit
+
+            chord = np.max(YB_r) - np.min(YB_r)
             if chord <= 0: continue
-            
-            XB_r, YB_r = -YB * (40.0/chord), XB * (40.0/chord)
-            XB_r += 39.0 - np.mean(XB_r); YB_r += 45.0 - np.min(YB_r)
-            
-            Xgrid, Ygrid = np.meshgrid(np.arange(Nx), np.arange(Ny))
-            mask = Path(np.column_stack((XB_r, YB_r))).contains_points(np.column_stack((Xgrid.flatten(), Ygrid.flatten()))).reshape((Ny, Nx)).astype(float)
-            
+
+            # Tight channel matching generate_data.py margins
+            x_lo, x_hi = np.min(XB_r) - 0.3, np.max(XB_r) + 0.3
+            y_lo, y_hi = np.min(YB_r) - 0.5, np.max(YB_r) + 0.5
+
+            # Physical linspace grid — same approach as generate_data.py
+            XX, YY = np.meshgrid(np.linspace(x_lo, x_hi, Nx), np.linspace(y_lo, y_hi, Ny))
+
+            mask = Path(np.column_stack((XB_r, YB_r))).contains_points(
+                np.column_stack((XX.flatten(), YY.flatten()))
+            ).reshape((Ny, Nx)).astype(float)
+
             curr_masks.append(mask)
             curr_sdfs.append(distance_transform_edt(1 - mask))
-            
+
+
             if len(curr_masks) == BATCH_SIZE: execute_batch()
         except: pass
 

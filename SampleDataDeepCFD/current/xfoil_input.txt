@@ -1,5 +1,7 @@
 LOAD t.dat
-PANE
-SAVE af.txt
+PPAR
+N 170
 
+
+PSAV af.txt
 QUIT
